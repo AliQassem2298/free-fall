@@ -140,13 +140,13 @@ export class ConfigGUI {
 
     // إضافة الرياح
     const wind = env.addFolder('الرياح');
-    wind.add(config.wind, 'x', -20, 20, 0.1).name('الرياح X (أفقية)').onChange(() => {
+    wind.add(config.wind, 'x', -5, 5, 0.1).name('الرياح X (أفقية)').onChange(() => {
       console.log(`رياح X: ${config.wind.x}`);
     });
-    wind.add(config.wind, 'y', -10, 10, 0.1).name('الرياح Y (عمودية)').onChange(() => {
+    wind.add(config.wind, 'y', -5, 5, 0.1).name('الرياح Y (عمودية)').onChange(() => {
       console.log(`رياح Y: ${config.wind.y}`);
     });
-    wind.add(config.wind, 'z', -20, 20, 0.1).name('الرياح Z (أفقية)').onChange(() => {
+    wind.add(config.wind, 'z', -5, 5, 0.1).name('الرياح Z (أفقية)').onChange(() => {
       console.log(`رياح Z: ${config.wind.z}`);
     });
 

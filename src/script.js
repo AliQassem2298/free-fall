@@ -800,7 +800,7 @@ function updateParatrooperFromPhysics() {
     const canopyHeight = 0.07; // 7 متر × 0.01 = 0.07 وحدة
     parachute.position.set(
       state.position.x * METERS_TO_UNITS,
-      state.position.y * METERS_TO_UNITS + canopyHeight + 7,
+      state.position.y * METERS_TO_UNITS + canopyHeight - 2,
       state.position.z * METERS_TO_UNITS
     );
     const scale = 1 + state.openProgress * 4;

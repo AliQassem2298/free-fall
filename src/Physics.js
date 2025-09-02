@@ -1,6 +1,5 @@
 // Physics.js
 import * as THREE from "three";
-
 // الثوابت (قابلة للتعديل من خلال الواجهة)
 const defaultConfig = {
   // البيئة (بيئة المحاكاة)
@@ -13,7 +12,7 @@ const defaultConfig = {
 
   // الديناميكا الهوائية (Aerodynamics)
   Cd_body: 1.0,               // معامل السحب (الشخص أثناء السقوط الحر)
-  Cd_canopy: 2.0,             // معامل السحب (المظلة المفتوحة بالكامل)
+  Cd_canopy: 1.0,             // ✅ تم تغييره من 2 إلى 1
   A_body: 0.7,                // مساحة السطح (الشخص)
   A_canopy: 40,               // مساحة السطح (المظلة)
 
@@ -30,12 +29,12 @@ const defaultConfig = {
   decelerationBoost: 0.5,     // معامل الزيادة للتباطؤ النهائي (0-1)
 
   // مستوى الأرض
-  groundY: 0                  // مستوى الأرض (لا توجد مرحلة "ملامسة الأرض")
+  groundY: 1000                 // مستوى الأرض (لا توجد مرحلة "ملامسة الأرض")
 };
 
 // الحالة الحالية للمحاكاة
 const state = {
-  position: new THREE.Vector3(0, 1000, 0), // الموقع الابتدائي (متر)
+  position: new THREE.Vector3(0, 0, 0), // الموقع الابتدائي (متر)
   velocity: new THREE.Vector3(0, 0, 0),    // السرعة الابتدائية (متر/ثانية)
   acceleration: new THREE.Vector3(0, 0, 0), // التسارع الابتدائي (متر/ثانية^2)
   time: 0,                                 // الزمن (ثواني)
@@ -111,11 +110,6 @@ function calculatePotentialEnergy() {
 function updatePhysics(dt) {
   state.time += dt;
 
-  // فتح المظلة تلقائيًا عند الوصول إلى ارتفاع معين (اختياري)
-  if (config.openAutoAtAltitude && state.phase === "سقوط حر" && state.position.y <= config.openAutoAtAltitude) {
-    openParachute();
-  }
-
   // تحديث تقدم فتح المظلة والمرحلة
   if (state.phase === "فتح المظلة") {
     state.openProgress += dt / config.T_open;
@@ -148,17 +142,19 @@ function updatePhysics(dt) {
 
   // التوقف عند الوصول إلى الارتفاع 0
   if (state.position.y <= config.groundY) {
-    state.position.y = 0;
+    state.position.y = 1000;
     state.velocity.set(0, 0, 0);
     state.acceleration.set(0, 0, 0);
-    // لا نغيّر المرحلة إلى "ملامسة الأرض"، نكتفي بالتوقف
+
+    // ✅ السرعة الحدية تصبح 0 عند التوقف
+    telemetry.terminalVelocity = 0;
   }
 
   // تحديث بيانات الواجهة
   telemetry.time = state.time;
   telemetry.altitude = Math.max(0, state.position.y);
   telemetry.speed = state.velocity.length();
-  telemetry.verticalSpeed = Math.abs(state.velocity.y); // القيمة المطلقة
+  telemetry.verticalSpeed = Math.abs(state.velocity.y);
   telemetry.horizontalSpeed = new THREE.Vector3(state.velocity.x, 0, state.velocity.z).length();
   telemetry.kineticEnergy = calculateKineticEnergy();
   telemetry.potentialEnergy = calculatePotentialEnergy();
@@ -166,7 +162,11 @@ function updatePhysics(dt) {
   telemetry.dragForce = dragForce.length();
   telemetry.liftForce = liftForce.length();
   telemetry.weight = weight;
-  telemetry.terminalVelocity = calculateTerminalVelocity();
+
+  // لا تحسب terminalVelocity إذا كنا متوقفين
+  if (state.position.y > 0) {
+    telemetry.terminalVelocity = calculateTerminalVelocity();
+  }
 }
 
 // بدء عملية فتح المظلة
@@ -180,35 +180,6 @@ function openParachute() {
 // الحلقة الرئيسية لتحديث المحاكاة
 function step(dt) {
   updatePhysics(dt);
-
-  // تسجيل التفاصيل (اختياري)
-  console.log('%c Physics Simulation Data', 'background: #222; color: #bada55; font-size: 12px;');
-  console.log('Time:', state.time.toFixed(2) + 's', '| Phase:', state.phase);
-  console.log('Position:', {
-    x: state.position.x.toFixed(2),
-    y: state.position.y.toFixed(2),
-    z: state.position.z.toFixed(2)
-  }, 'm');
-  console.log('Velocity:', {
-    x: state.velocity.x.toFixed(2),
-    y: state.velocity.y.toFixed(2),
-    z: state.velocity.z.toFixed(2),
-    magnitude: state.velocity.length().toFixed(2)
-  }, 'm/s');
-  console.log('Forces:', {
-    drag: telemetry.dragForce.toFixed(2),
-    lift: telemetry.liftForce.toFixed(2),
-    weight: telemetry.weight.toFixed(2)
-  }, 'N');
-  console.log('Energy:', {
-    kinetic: (telemetry.kineticEnergy / 1000).toFixed(2),
-    potential: (telemetry.potentialEnergy / 1000).toFixed(2)
-  }, 'kJ');
-  console.log('Parachute:', {
-    openProgress: state.openProgress.toFixed(2),
-    terminalVelocity: telemetry.terminalVelocity.toFixed(2)
-  });
-  console.log('-----------------------------------');
 }
 
 // عرض المعاملات للواجهة
