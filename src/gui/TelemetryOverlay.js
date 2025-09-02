@@ -659,13 +659,6 @@ export class TelemetryOverlay {
         color: #FFF;
         font-weight: 500;
       }
-
-      @media (max-height: 720px) {
-        #telemetry-overlay {
-          transform: scale(0.9);
-          transform-origin: top left;
-        }
-      }
     `;
     document.head.appendChild(style);
 
@@ -694,7 +687,7 @@ export class TelemetryOverlay {
         <span class="value" id="speed-value">0.00</span><span class="unit">م/ث</span>
       </div>
       <div class="data-row">
-        <span class="label">العمودية</span>
+        <span class="label">العمودية (مقدار)</span>
         <span class="value" id="vertical-speed-value">0.00</span><span class="unit">م/ث</span>
       </div>
       <div class="data-row">
@@ -720,8 +713,16 @@ export class TelemetryOverlay {
         <span class="value" id="drag-force-value">0</span><span class="unit">ن</span>
       </div>
       <div class="data-row">
+        <span class="label">قوة الرفع</span>
+        <span class="value" id="lift-force-value">0</span><span class="unit">ن</span>
+      </div>
+      <div class="data-row">
         <span class="label">الوزن</span>
         <span class="value" id="weight-value">0</span><span class="unit">ن</span>
+      </div>
+      <div class="data-row">
+        <span class="label">الضغط الديناميكي</span>
+        <span class="value" id="dynamic-pressure-value">0</span><span class="unit">باسكال</span>
       </div>
 
       <!-- المظلة -->
@@ -744,12 +745,14 @@ export class TelemetryOverlay {
     document.getElementById('time-value').textContent = t.time.toFixed(2);
     document.getElementById('altitude-value').textContent = t.altitude.toFixed(1);
     document.getElementById('speed-value').textContent = t.speed.toFixed(2);
-    document.getElementById('vertical-speed-value').textContent = t.verticalSpeed.toFixed(2);
+    document.getElementById('vertical-speed-value').textContent = t.verticalSpeed.toFixed(2); // مطلق
     document.getElementById('horizontal-speed-value').textContent = t.horizontalSpeed.toFixed(2);
     document.getElementById('kinetic-energy-value').textContent = (t.kineticEnergy / 1000).toFixed(1);
     document.getElementById('potential-energy-value').textContent = (t.potentialEnergy / 1000).toFixed(1);
     document.getElementById('drag-force-value').textContent = Math.round(t.dragForce);
+    document.getElementById('lift-force-value').textContent = Math.round(t.liftForce);
     document.getElementById('weight-value').textContent = Math.round(t.weight);
+    document.getElementById('dynamic-pressure-value').textContent = t.dynamicPressure.toFixed(0);
     document.getElementById('terminal-velocity-value').textContent = t.terminalVelocity.toFixed(2);
     document.getElementById('open-progress-value').textContent = (s.openProgress * 100).toFixed(1) + '%';
 
@@ -760,7 +763,6 @@ export class TelemetryOverlay {
     phaseEl.style.color =
       s.phase === 'سقوط حر' ? '#FFB300' :
         s.phase === 'فتح المظلة' ? '#FF9800' :
-          s.phase === 'تحت المظلة' ? '#4CAF50' :
-            s.phase === 'ملامسة الأرض' ? '#F44336' : '#FFFFFF';
+          s.phase === 'تحت المظلة' ? '#4CAF50' : '#FFFFFF';
   }
 }

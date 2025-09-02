@@ -138,6 +138,18 @@ export class ConfigGUI {
       console.log(`تم تحديث الجاذبية إلى: ${config.g}`);
     });
 
+    // إضافة الرياح
+    const wind = env.addFolder('الرياح');
+    wind.add(config.wind, 'x', -20, 20, 0.1).name('الرياح X (أفقية)').onChange(() => {
+      console.log(`رياح X: ${config.wind.x}`);
+    });
+    wind.add(config.wind, 'y', -10, 10, 0.1).name('الرياح Y (عمودية)').onChange(() => {
+      console.log(`رياح Y: ${config.wind.y}`);
+    });
+    wind.add(config.wind, 'z', -20, 20, 0.1).name('الرياح Z (أفقية)').onChange(() => {
+      console.log(`رياح Z: ${config.wind.z}`);
+    });
+
     const mass = this.gui.addFolder('الكتلة');
     this.controllers.mass = mass.add(config, 'mass', 1, 200).name('كتلة الجسم').onChange(() => {
       console.log(`تم تحديث كتلة الجسم إلى: ${config.mass}`);
@@ -170,18 +182,8 @@ export class ConfigGUI {
       console.log(`تم تحديث مدة الفتح إلى: ${config.T_open}`);
     });
 
-    const ground = this.gui.addFolder('الاتصال بالأرض');
-    this.controllers.k = ground.add(config, 'k', 1000, 100000).name('ثابت النابض').onChange(() => {
-      console.log(`تم تحديث ثابت النابض إلى: ${config.k}`);
-    });
-
-    this.controllers.c = ground.add(config, 'c', 100, 20000).name('ثابت المخمد').onChange(() => {
-      console.log(`تم تحديث ثابت المخمد إلى: ${config.c}`);
-    });
-
-    this.controllers.stickEps = ground.add(config, 'stickEps', 0, 1).name('سرعة التوقف').onChange(() => {
-      console.log(`تم تحديث سرعة التوقف إلى: ${config.stickEps}`);
-    });
+    // إزالة "الاتصال بالأرض" بالكامل
+    // لا حاجة له بعد التوقف البسيط عند y=0
 
     // زر إعادة التعيين
     this.gui.add({ reset: () => this.resetSimulation() }, 'reset').name('إعادة تعيين المحاكاة');

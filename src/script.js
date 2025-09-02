@@ -19,6 +19,9 @@ const telemetryOverlay = new TelemetryOverlay(state, telemetry, config);
 
 const configGUI = new ConfigGUI(); // ✅ This should work
 
+
+const METERS_TO_UNITS = 0.01; // 1 متر = 0.01 وحدة في المشهد
+const UNITS_TO_METERS = 100;  // 1 وحدة = 100 متر (لتحويل موقع الهليكوبتر)
 /*
             Base
 */
@@ -525,12 +528,7 @@ gltfLoader.load(
   '/models/person/persoon.glb',
   (gltf) => {
     gltf.scene.scale.set(0.04, 0.04, 0.04);
-
-    gltf.scene.translateY(6.5);
-
-    // 👇 Fix model orientation: make it face forward (+Z)
     gltf.scene.rotation.y = Math.PI; // Rotate 180° around Y-axis
-
     paratrooper = gltf.scene;
     paratrooper.visible = false;
     scene.add(paratrooper);
@@ -624,25 +622,44 @@ window.addEventListener('keydown', (event) => {
 
   if (event.key === 'c') {
     if (!simulationStarted && helicopter && paratrooper) {
-      // Set initial physics state position to a high altitude,
-      // but align XZ with the helicopter's current position.
-      // Assuming 1 Three.js unit = 1 meter for physics calculations.
-      state.position.set(helicopter.position.x, 1000, helicopter.position.z); // Start at 1000m altitude
+      // تحويل موقع الهليكوبتر من وحدات Three.js إلى أمتار
+      const heliPosInMeters = new THREE.Vector3(
+        helicopter.position.x * UNITS_TO_METERS,
+        helicopter.position.y * UNITS_TO_METERS,
+        helicopter.position.z * UNITS_TO_METERS
+      );
+
+      // ارتفاع إضافي فوق الهليكوبتر (10 أمتار)
+      const offsetAbove = 10;
+
+      // ضبط الحالة الفيزيائية (بالأمتار)
+      state.position.set(
+        heliPosInMeters.x,
+        heliPosInMeters.y + offsetAbove,
+        heliPosInMeters.z
+      );
+
       state.velocity.set(0, 0, 0);
       state.time = 0;
       state.phase = "سقوط حر";
+
+      // عرض المظلي فورًا (تحويل من متر إلى وحدات العرض)
+      paratrooper.position.set(
+        state.position.x * METERS_TO_UNITS,
+        state.position.y * METERS_TO_UNITS,
+        state.position.z * METERS_TO_UNITS
+      );
       paratrooper.visible = true;
-      // Immediately place the paratrooper model at the helicopter's visual position
-      paratrooper.position.copy(helicopter.position);
+      addVisualFeedback("قفز!", 0x00ff00);
+
       simulationStarted = true;
-      console.log('Simulation started');
+
+      // ✅ لا شيء عن الكاميرا هنا — لن تتحرك
     } else if (simulationStarted && state.phase === "سقوط حر") {
       openParachute();
-      console.log('Parachute opened');
     }
   }
 });
-
 
 window.addEventListener('keyup', (event) => {
   keyboard[event.key] = false
@@ -764,37 +781,31 @@ const updateHelicopter = () => {
 function updateParatrooperFromPhysics() {
   if (!paratrooper || !state || !simulationStarted) return;
 
-  // Sync position from physics state
+  // تحديث موقع العرض: تحويل من متر إلى وحدات Three.js
   paratrooper.position.set(
-    state.position.x,
-    state.position.y * 0.01, // Convert meters to model units
-    state.position.z
+    state.position.x * METERS_TO_UNITS,
+    state.position.y * METERS_TO_UNITS - 10,
+    state.position.z * METERS_TO_UNITS
   );
 
-  // Only rotate if velocity is significant
+  // تدوير المظلي
   if (state.velocity.length() > 0.1) {
-    const direction = state.velocity.clone().normalize();
-
-    // 👉 Use lookAt() FIRST to set orientation
-    // paratrooper.lookAt(paratrooper.position.clone().add(direction));
-
-    // 👉 THEN apply additional tilt (don't overwrite with .rotation.set!)
     const verticalRatio = Math.abs(state.velocity.y) / (state.velocity.length() || 1);
-    paratrooper.rotation.x = -Math.PI / 6 * (1 - verticalRatio); // Lean forward when moving horizontally
+    paratrooper.rotation.x = -Math.PI / 6 * (1 - verticalRatio);
   }
 
-  // Update parachute
+  // تحديث المظلة
   if (parachute && state.openProgress > 0) {
     parachute.visible = true;
+    const canopyHeight = 0.07; // 7 متر × 0.01 = 0.07 وحدة
     parachute.position.set(
-      state.position.x,
-      (state.position.y * 0.01) + 7,
-      state.position.z
+      state.position.x * METERS_TO_UNITS,
+      state.position.y * METERS_TO_UNITS + canopyHeight + 7,
+      state.position.z * METERS_TO_UNITS
     );
     const scale = 1 + state.openProgress * 4;
     parachute.scale.set(scale, scale, scale);
 
-    // Slight oscillation when fully open
     if (state.openProgress > 0.9) {
       const oscillation = Math.sin(Date.now() * 0.003) * 0.05;
       parachute.rotation.z = oscillation;
@@ -804,15 +815,19 @@ function updateParatrooperFromPhysics() {
     parachute.visible = false;
   }
 
-  // Follow camera only when in air
-  if (simulationStarted && state.position.y > 10) {
-    const cameraOffset = new THREE.Vector3(-20, 15, -20);
-    const targetPosition = new THREE.Vector3().addVectors(paratrooper.position, cameraOffset);
-    camera.position.lerp(targetPosition, 0.02);
-    controls.target.lerp(paratrooper.position, 0.05);
+  // الكاميرا تتبع المظلي إذا كان في الهواء (بالوحدات الأصلية)
+  if (state.position.y > 1) {
+    const displayPos = new THREE.Vector3(
+      state.position.x * METERS_TO_UNITS,
+      state.position.y * METERS_TO_UNITS,
+      state.position.z * METERS_TO_UNITS
+    );
+    const cameraOffset = new THREE.Vector3(-0.2, 0.15, -0.2);
+    const targetPosition = new THREE.Vector3().addVectors(displayPos, cameraOffset);
+    // camera.position.lerp(targetPosition, 0.02);
+    // controls.target.lerp(displayPos, 0.05);
   }
 }
-
 
 
 /*
@@ -854,27 +869,22 @@ const tick = () => {
   const deltaTime = Math.min(0.1, elapsedTime - previousTime);
   previousTime = elapsedTime;
 
-  // Only run physics if simulation started
   if (simulationStarted) {
     step(deltaTime);
   }
 
-  // Update paratrooper model based on physics
   updateParatrooperFromPhysics();
 
-  // Update animations
+  // تحديث المزجات (التحريك)
   for (const mixer of mixers) {
     mixer.update(deltaTime);
   }
 
-  // Update controls & helicopter
+  // ✅ التأكد من استدعاء updateHelicopter
+  updateHelicopter(); // ⚠️ يجب أن تكون هنا
+
   controls.update();
-  updateHelicopter();
-
-  // Update visual feedback
   updateVisualFeedbacks(deltaTime);
-
-  // Update overlay
   telemetryOverlay.update();
 
   renderer.render(scene, camera);

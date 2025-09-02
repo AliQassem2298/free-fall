@@ -12,28 +12,25 @@ const defaultConfig = {
   mass: 90,                   // الكتلة الإجمالية (kg)
 
   // الديناميكا الهوائية (Aerodynamics)
-  Cd_body: 1.0,               // معامل السحب (الشخص أثناء السقوط الحر) - more realistic value for skydiver
-  Cd_canopy: 2.0,             // معامل السحب (المظلة المفتوحة بالكامل) - increased for more realistic deceleration
+  Cd_body: 1.0,               // معامل السحب (الشخص أثناء السقوط الحر)
+  Cd_canopy: 2.0,             // معامل السحب (المظلة المفتوحة بالكامل)
   A_body: 0.7,                // مساحة السطح (الشخص)
-  A_canopy: 40,               // مساحة السطح (المظلة) - increased for more realistic parachute size
+  A_canopy: 40,               // مساحة السطح (المظلة)
 
   // الرفع (Lift)
-  Cl: 1.5,                    // معامل الرفع (تحت المظلة) - increased for more realistic lift
+  Cl: 1.5,                    // معامل الرفع (تحت المظلة)
 
   // فتح المظلة (Parachute opening)
-  T_open: 3.0,                // وقت فتح المظلة (ثواني) - increased for more realistic opening time
-  openTime: 0,                // الوقت المنقضي منذ فتح المظلة (ثواني)
+  T_open: 3.0,                // وقت فتح المظلة (ثواني)
+  openTime: 0,                // الوقت المنقضي منذ فتح المظلة
   openProgress: 0,            // تقدم فتح المظلة (0-1)
 
   // التباطؤ النهائي (Final deceleration)
   decelerationThreshold: 20,  // ارتفاع التباطؤ النهائي (المتر)
   decelerationBoost: 0.5,     // معامل الزيادة للتباطؤ النهائي (0-1)
 
-  // ملامسة الأرض (Ground contact)
-  groundY: 0,                 // مستوى الأرض (Y=0)
-  k: 50000,                   // ثابت الزنبرك لملامسة الأرض (N/m)
-  c: 5000,                    // ثابت المخمّد لملامسة الأرض (N·s/m)
-  stickEps: 0.25              // السرعة التي نعتبر التوقف التام عندها (m/s)
+  // مستوى الأرض
+  groundY: 0                  // مستوى الأرض (لا توجد مرحلة "ملامسة الأرض")
 };
 
 // الحالة الحالية للمحاكاة
@@ -42,7 +39,7 @@ const state = {
   velocity: new THREE.Vector3(0, 0, 0),    // السرعة الابتدائية (متر/ثانية)
   acceleration: new THREE.Vector3(0, 0, 0), // التسارع الابتدائي (متر/ثانية^2)
   time: 0,                                 // الزمن (ثواني)
-  phase: "سقوط حر",                        // المرحلة الحالية (سقوط حر، فتح المظلة، تحت المظلة، ملامسة الأرض)
+  phase: "سقوط حر",                        // المرحلة الحالية
   openProgress: 0,                         // تقدم فتح المظلة (0-1)
 };
 
@@ -57,23 +54,39 @@ const telemetry = {
   potentialEnergy: 0,
   dynamicPressure: 0,
   dragForce: 0,
+  liftForce: 0,
   weight: 0,
-  groundForce: 0,
   terminalVelocity: 0
 };
 
-// دوال حساب القوى والطاقة والسرعات
-
 // حساب قوة السحب
 function calculateDragForce() {
-  const vRel = state.velocity.clone().sub(config.wind); // السرعة النسبية (متر/ثانية)
+  const vRel = state.velocity.clone().sub(config.wind); // السرعة النسبية
   const speedRel = vRel.length();
   const q = 0.5 * config.rho * speedRel * speedRel; // الضغط الديناميكي
   const CdA_body = config.Cd_body * config.A_body;
   const CdA_canopy = config.Cd_canopy * config.A_canopy;
-  const CdA = CdA_body + (CdA_canopy - CdA_body) * state.openProgress; // المساحة المكافئة للسحب (تدرّج بين السقوط الحر والمظلة)
-  const dragForce = vRel.clone().multiplyScalar(-q * CdA / (speedRel || 1)); // قوة السحب (متجه)
+  const CdA = CdA_body + (CdA_canopy - CdA_body) * state.openProgress;
+  const dragForce = vRel.clone().multiplyScalar(-q * CdA / (speedRel || 1));
   return dragForce;
+}
+
+// حساب قوة الرفع (عمودية على السرعة النسبية، في الطائرة العمودية)
+function calculateLiftForce() {
+  const vRel = state.velocity.clone().sub(config.wind);
+  const speedRel = vRel.length();
+
+  if (speedRel === 0) return new THREE.Vector3(0, 0, 0);
+
+  // الاتجاه العمودي (نستخدم اتجاه الأفقي كمرجع)
+  const horizontal = new THREE.Vector3(vRel.x, 0, vRel.z);
+  if (horizontal.length() === 0) return new THREE.Vector3(0, 0, 0);
+
+  const liftDir = horizontal.normalize(); // الاتجاه الأفقي هو اتجاه القوة الرأسية (مثلاً)
+  const q = 0.5 * config.rho * speedRel * speedRel;
+  const ClA = config.Cl * config.A_canopy * state.openProgress; // فقط تحت المظلة
+  const liftMagnitude = q * ClA;
+  return liftDir.multiplyScalar(liftMagnitude);
 }
 
 // حساب السرعة الحدّية
@@ -120,38 +133,39 @@ function updatePhysics(dt) {
 
   // حساب القوى
   const dragForce = calculateDragForce();
+  const liftForce = calculateLiftForce();
   const weight = config.mass * config.g;
 
-  // تطبيق الجاذبية والسحب للحصول على القوة الإجمالية
-  const totalForce = new THREE.Vector3(0, -weight, 0).add(dragForce.clone().multiplyScalar(decelerationBoost));
+  // القوة الإجمالية (بما في ذلك الجاذبية، السحب، الرفع)
+  const totalForce = new THREE.Vector3(0, -weight, 0).add(dragForce.clone().multiplyScalar(decelerationBoost)).add(liftForce);
 
-  // حساب التسارع باستخدام F = m * a (قانون نيوتن الثاني)
+  // التسارع
   state.acceleration.copy(totalForce).multiplyScalar(1 / config.mass);
 
-  // تحديث السرعة والموقع باستخدام طريقة شبه-أويلر
+  // التحديث (شبه-أويلر)
   state.velocity.addScaledVector(state.acceleration, dt);
   state.position.addScaledVector(state.velocity, dt);
 
-  // التوقف عند ملامسة الأرض (التحقق من الحد الأدنى للسرعة)
-  if (state.position.y <= config.groundY && Math.abs(state.velocity.y) < config.stickEps) {
-    state.position.y = config.groundY;
+  // التوقف عند الوصول إلى الارتفاع 0
+  if (state.position.y <= config.groundY) {
+    state.position.y = 0;
     state.velocity.set(0, 0, 0);
     state.acceleration.set(0, 0, 0);
-    state.phase = "ملامسة الأرض"; // التبديل إلى المرحلة "LAND" عند التوقف التام
+    // لا نغيّر المرحلة إلى "ملامسة الأرض"، نكتفي بالتوقف
   }
 
-  // تحديث البيانات للواجهة
+  // تحديث بيانات الواجهة
   telemetry.time = state.time;
-  telemetry.altitude = state.position.y;
+  telemetry.altitude = Math.max(0, state.position.y);
   telemetry.speed = state.velocity.length();
-  telemetry.verticalSpeed = state.velocity.y;
+  telemetry.verticalSpeed = Math.abs(state.velocity.y); // القيمة المطلقة
   telemetry.horizontalSpeed = new THREE.Vector3(state.velocity.x, 0, state.velocity.z).length();
   telemetry.kineticEnergy = calculateKineticEnergy();
   telemetry.potentialEnergy = calculatePotentialEnergy();
   telemetry.dynamicPressure = 0.5 * config.rho * state.velocity.lengthSq();
   telemetry.dragForce = dragForce.length();
+  telemetry.liftForce = liftForce.length();
   telemetry.weight = weight;
-  telemetry.groundForce = Math.abs(totalForce.y);
   telemetry.terminalVelocity = calculateTerminalVelocity();
 }
 
@@ -160,15 +174,14 @@ function openParachute() {
   if (state.phase === "سقوط حر") {
     state.phase = "فتح المظلة";
     state.openProgress = 0;
-    state.time = 0;
   }
 }
 
-// الحلقة الرئيسية لتحديث المحاكاة (تُستدعى في كل إطار)
+// الحلقة الرئيسية لتحديث المحاكاة
 function step(dt) {
   updatePhysics(dt);
 
-  // Detailed console logging for debugging and comparison with GUI
+  // تسجيل التفاصيل (اختياري)
   console.log('%c Physics Simulation Data', 'background: #222; color: #bada55; font-size: 12px;');
   console.log('Time:', state.time.toFixed(2) + 's', '| Phase:', state.phase);
   console.log('Position:', {
@@ -182,65 +195,46 @@ function step(dt) {
     z: state.velocity.z.toFixed(2),
     magnitude: state.velocity.length().toFixed(2)
   }, 'm/s');
-  console.log('Acceleration:', {
-    x: state.acceleration.x.toFixed(2),
-    y: state.acceleration.y.toFixed(2),
-    z: state.acceleration.z.toFixed(2),
-    magnitude: state.acceleration.length().toFixed(2)
-  }, 'm/s²');
-  console.log('Energy:', {
-    kinetic: (telemetry.kineticEnergy / 1000).toFixed(2),
-    potential: (telemetry.potentialEnergy / 1000).toFixed(2),
-    total: ((telemetry.kineticEnergy + telemetry.potentialEnergy) / 1000).toFixed(2)
-  }, 'kJ');
   console.log('Forces:', {
     drag: telemetry.dragForce.toFixed(2),
-    weight: telemetry.weight.toFixed(2),
-    ground: telemetry.groundForce.toFixed(2)
+    lift: telemetry.liftForce.toFixed(2),
+    weight: telemetry.weight.toFixed(2)
   }, 'N');
+  console.log('Energy:', {
+    kinetic: (telemetry.kineticEnergy / 1000).toFixed(2),
+    potential: (telemetry.potentialEnergy / 1000).toFixed(2)
+  }, 'kJ');
   console.log('Parachute:', {
     openProgress: state.openProgress.toFixed(2),
     terminalVelocity: telemetry.terminalVelocity.toFixed(2)
   });
   console.log('-----------------------------------');
-
-  // تحديث الواجهة هنا باستخدام قيم telemetry (كائن telemetry)
 }
 
-// عرض المعاملات للواجهة (لتعديل الثوابت)
-const config = defaultConfig; // الإعدادات الافتراضية، قابلة للتعديل أثناء التشغيل
+// عرض المعاملات للواجهة
+const config = defaultConfig;
 
-// Reset simulation to initial state
+// إعادة تعيين المحاكاة
 function resetSimulation() {
-  // Reset position and velocity
   state.position.set(0, 1000, 0);
   state.velocity.set(0, 0, 0);
   state.acceleration.set(0, 0, 0);
-
-  // Reset time and phase
   state.time = 0;
   state.phase = "سقوط حر";
   state.openProgress = 0;
 
-  // Reset config to default values if needed
   Object.assign(config, defaultConfig);
 
-  console.log('Simulation reset to initial state');
+  console.log('تمت إعادة تعيين المحاكاة');
 }
 
-// Export functions for testing
+// تصدير كل شيء
 export {
   state,
   telemetry,
   config,
   step,
-  calculateDragForce,
-  calculateTerminalVelocity,
-  calculateKineticEnergy,
-  calculatePotentialEnergy,
   updatePhysics,
   openParachute,
   resetSimulation
 };
-
-
