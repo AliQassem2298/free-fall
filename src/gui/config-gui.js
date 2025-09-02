@@ -168,7 +168,7 @@ export class ConfigGUI {
       console.log(`تم تحديث مساحة الجسم إلى: ${config.A_body}`);
     });
 
-    this.controllers.A_canopy = aero.add(config, 'A_canopy', 5, 50).name('مساحة المظلة').onChange(() => {
+    this.controllers.A_canopy = aero.add(config, 'A_canopy', 1, 10).name('مساحة المظلة').onChange(() => {
       console.log(`تم تحديث مساحة المظلة إلى: ${config.A_canopy}`);
     });
 
@@ -185,8 +185,6 @@ export class ConfigGUI {
     // إزالة "الاتصال بالأرض" بالكامل
     // لا حاجة له بعد التوقف البسيط عند y=0
 
-    // زر إعادة التعيين
-    this.gui.add({ reset: () => this.resetSimulation() }, 'reset').name('إعادة تعيين المحاكاة');
 
     this.gui.open();
   }
