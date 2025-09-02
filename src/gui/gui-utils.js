@@ -1,4 +1,6 @@
 // أدوات مشتركة
+import * as dat from 'lil-gui'; // ✅ Modern, lightweight
+// 
 
 // gui/gui-utils.js
 export class GUIManager {

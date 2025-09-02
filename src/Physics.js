@@ -6,7 +6,7 @@ const defaultConfig = {
   // البيئة (بيئة المحاكاة)
   rho: 1.225,                 // كثافة الهواء (kg/m^3)
   g: 9.81,                    // تسارع الجاذبية (m/s^2)
-  wind: new THREE.Vector3(3, 0, 1.5), // متجه الرياح (m/s) - realistic light wind with slight variation
+  wind: new THREE.Vector3(0, 0, 0), // متجه الرياح (m/s)
 
   // الكتلة (Mass)
   mass: 90,                   // الكتلة الإجمالية (kg)

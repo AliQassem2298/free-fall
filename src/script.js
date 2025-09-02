@@ -1,16 +1,23 @@
 // script.js
+
+
 import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 // إضافة استيرادات جديدة للفيزياء والواجهات
-import { step, state, telemetry, config, openParachute } from './physics.js';
-import { TelemetryGUI } from './gui/telemetry-gui.js';
+import { step, state, telemetry, config, openParachute, resetSimulation } from './Physics.js';
 import { ConfigGUI } from './gui/config-gui.js';
+import * as dat from 'lil-gui'; // ✅ Modern, lightweight
+
+import { TelemetryOverlay } from './gui/TelemetryOverlay.js';
+
+// After physics imports
+const telemetryOverlay = new TelemetryOverlay(state, telemetry, config);
 
 
-const telemetryGUI = new TelemetryGUI();
-const configGUI = new ConfigGUI();
+
+const configGUI = new ConfigGUI(); // ✅ This should work
 
 /*
             Base
@@ -21,7 +28,7 @@ const scene = new THREE.Scene()
 
 
 // بدء تحديث عرض البيانات
-telemetryGUI.startUpdating();
+// telemetryGUI.startUpdating();
 
 /*
             Models
@@ -517,15 +524,18 @@ gltfLoader.load(
 gltfLoader.load(
   '/models/person/persoon.glb',
   (gltf) => {
-    gltf.scene.scale.set(0.04, 0.04, 0.04)
-    gltf.scene.translateY(6.5)
+    gltf.scene.scale.set(0.04, 0.04, 0.04);
 
-    paratrooper = gltf.scene
-    paratrooper.visible = false
+    gltf.scene.translateY(6.5);
 
-    scene.add(paratrooper)
+    // 👇 Fix model orientation: make it face forward (+Z)
+    gltf.scene.rotation.y = Math.PI; // Rotate 180° around Y-axis
+
+    paratrooper = gltf.scene;
+    paratrooper.visible = false;
+    scene.add(paratrooper);
   }
-)
+);
 
 /*
             skybox
@@ -612,40 +622,27 @@ let simulationStarted = false;
 window.addEventListener('keydown', (event) => {
   keyboard[event.key] = true;
 
-  // When 'c' is pressed, either start simulation or open parachute
   if (event.key === 'c') {
-    // If simulation hasn't started and helicopter is loaded, start from helicopter position
-    if (!simulationStarted && helicopter) {
-      // Start simulation from helicopter position
-      state.position.set(
-        helicopter.position.x,
-        helicopter.position.y * 100, // Convert from model units to meters
-        helicopter.position.z
-      );
-      state.velocity.set(0, 0, 0); // Reset velocity
-      state.time = 0; // Reset time
-      state.phase = "سقوط حر"; // Set phase to free fall
-
-      // Make paratrooper visible and position it at helicopter
-      if (paratrooper) {
-        paratrooper.visible = true;
-        paratrooper.position.copy(helicopter.position);
-      }
-
+    if (!simulationStarted && helicopter && paratrooper) {
+      // Set initial physics state position to a high altitude,
+      // but align XZ with the helicopter's current position.
+      // Assuming 1 Three.js unit = 1 meter for physics calculations.
+      state.position.set(helicopter.position.x, 1000, helicopter.position.z); // Start at 1000m altitude
+      state.velocity.set(0, 0, 0);
+      state.time = 0;
+      state.phase = "سقوط حر";
+      paratrooper.visible = true;
+      // Immediately place the paratrooper model at the helicopter's visual position
+      paratrooper.position.copy(helicopter.position);
       simulationStarted = true;
-      // Add visual feedback when simulation starts
-      addVisualFeedback("Simulation Started", 0x00ff00);
-      console.log('Simulation started from helicopter position');
-    }
-    // If simulation is running and in free fall phase, open the parachute
-    else if (simulationStarted && state.phase === "سقوط حر") {
+      console.log('Simulation started');
+    } else if (simulationStarted && state.phase === "سقوط حر") {
       openParachute();
-      // Add visual feedback when parachute opens
-      addVisualFeedback("Parachute Opened", 0x0000ff);
       console.log('Parachute opened');
     }
   }
 });
+
 
 window.addEventListener('keyup', (event) => {
   keyboard[event.key] = false
@@ -765,77 +762,58 @@ const updateHelicopter = () => {
 
 // دالة لمزامنة النماذج مع حالة الفيزياء
 function updateParatrooperFromPhysics() {
-  telemetryGUI.updateDisplay(); // لتحديث الـ GUI فورًا
+  if (!paratrooper || !state || !simulationStarted) return;
 
-  // Only update models if simulation has started
-  if (paratrooper && state && simulationStarted) {
-    // مزامنة موقع الفيزياء مع النموذج ثلاثي الأبعاد
-    paratrooper.position.set(
+  // Sync position from physics state
+  paratrooper.position.set(
+    state.position.x,
+    state.position.y * 0.01, // Convert meters to model units
+    state.position.z
+  );
+
+  // Only rotate if velocity is significant
+  if (state.velocity.length() > 0.1) {
+    const direction = state.velocity.clone().normalize();
+
+    // 👉 Use lookAt() FIRST to set orientation
+    // paratrooper.lookAt(paratrooper.position.clone().add(direction));
+
+    // 👉 THEN apply additional tilt (don't overwrite with .rotation.set!)
+    const verticalRatio = Math.abs(state.velocity.y) / (state.velocity.length() || 1);
+    paratrooper.rotation.x = -Math.PI / 6 * (1 - verticalRatio); // Lean forward when moving horizontally
+  }
+
+  // Update parachute
+  if (parachute && state.openProgress > 0) {
+    parachute.visible = true;
+    parachute.position.set(
       state.position.x,
-      state.position.y * 0.01, // تحويل من متر إلى وحدات الموديل
+      (state.position.y * 0.01) + 7,
       state.position.z
     );
+    const scale = 1 + state.openProgress * 4;
+    parachute.scale.set(scale, scale, scale);
 
-    // Rotate paratrooper based on velocity direction
-    if (state.velocity.length() > 0.1) {
-      // Calculate direction from velocity
-      const direction = state.velocity.clone().normalize();
-
-      // Create a rotation that points the paratrooper in the direction of movement
-      // Assuming the paratrooper model faces forward along the z-axis
-      paratrooper.lookAt(paratrooper.position.clone().add(direction));
-
-      // Add a slight tilt based on vertical/horizontal speed ratio
-      const verticalRatio = Math.abs(state.velocity.y) / (state.velocity.length() || 1);
-      paratrooper.rotation.x = -Math.PI / 6 * (1 - verticalRatio); // Tilt forward when moving horizontally
+    // Slight oscillation when fully open
+    if (state.openProgress > 0.9) {
+      const oscillation = Math.sin(Date.now() * 0.003) * 0.05;
+      parachute.rotation.z = oscillation;
+      parachute.rotation.x = oscillation * 0.5;
     }
+  } else {
+    parachute.visible = false;
+  }
 
-    // تحديث موضع المظلة بناءً على تقدم الفتح
-    if (parachute && state.openProgress > 0) {
-      parachute.visible = true;
-
-      // تحريك المظلة فوق الجندي
-      parachute.position.set(
-        state.position.x,
-        (state.position.y * 0.01) + 2, // مسافة فوق الجندي
-        state.position.z
-      );
-
-      // تغيير مقياس المظلة حسب تقدم الفتح
-      const scale = 1 + state.openProgress * 4; // من 1 إلى 5
-      parachute.scale.set(scale, scale, scale);
-
-      // Rotate parachute to face upward regardless of movement direction
-      parachute.rotation.set(0, 0, 0);
-
-      // إضافة تأثير اهتزاز خفيف للمظلة عند فتحها بالكامل
-      if (state.openProgress > 0.9) {
-        const oscillation = Math.sin(Date.now() * 0.003) * 0.05;
-        parachute.rotation.z = oscillation;
-        parachute.rotation.x = oscillation * 0.5;
-      }
-
-      // تحديث مرحلة العرض
-      telemetry.phase = state.phase;
-    } else if (parachute) {
-      parachute.visible = false;
-    }
-
-    // Follow the paratrooper with camera if simulation is active
-    if (simulationStarted && state.position.y > 10) { // Only follow when in air
-      // Smoothly move camera to follow paratrooper from behind and above
-      const cameraOffset = new THREE.Vector3(-20, 15, -20); // Behind and above
-      const targetPosition = new THREE.Vector3().addVectors(
-        paratrooper.position,
-        cameraOffset
-      );
-
-      // Smooth camera movement
-      camera.position.lerp(targetPosition, 0.02);
-      controls.target.lerp(paratrooper.position, 0.05);
-    }
+  // Follow camera only when in air
+  if (simulationStarted && state.position.y > 10) {
+    const cameraOffset = new THREE.Vector3(-20, 15, -20);
+    const targetPosition = new THREE.Vector3().addVectors(paratrooper.position, cameraOffset);
+    camera.position.lerp(targetPosition, 0.02);
+    controls.target.lerp(paratrooper.position, 0.05);
   }
 }
+
+
 
 /*
           Camera
@@ -873,34 +851,161 @@ let previousTime = 0;
 
 const tick = () => {
   const elapsedTime = clock.getElapsedTime();
-  // حماية من القفزات الكبيرة في الوقت
   const deltaTime = Math.min(0.1, elapsedTime - previousTime);
   previousTime = elapsedTime;
 
-  // Only update physics if simulation has started
+  // Only run physics if simulation started
   if (simulationStarted) {
-    // تحديث محاكاة الفيزياء
     step(deltaTime);
   }
 
-  // مزامنة النماذج مع حالة الفيزياء
+  // Update paratrooper model based on physics
   updateParatrooperFromPhysics();
 
-  // تحديث المزجرات (الرسوم المتحركة)
+  // Update animations
   for (const mixer of mixers) {
     mixer.update(deltaTime);
   }
 
-  // تحديث التحكم والهليكوبتر
+  // Update controls & helicopter
   controls.update();
   updateHelicopter();
 
-  // تحديث التأثيرات المرئية
+  // Update visual feedback
   updateVisualFeedbacks(deltaTime);
 
-  // رسم المشهد
+  // Update overlay
+  telemetryOverlay.update();
+
   renderer.render(scene, camera);
   window.requestAnimationFrame(tick);
 };
-
 tick();
+
+
+
+export class GUIControls {
+  constructor(water, sky, updateSun, submarine) {
+    this.water = water;
+    this.sky = sky;
+    this.updateSun = updateSun;
+    this.submarine = submarine;
+    this.initGUI();
+    this.initOverlay();
+  }
+
+  initGUI() {
+    const parameters = {
+      elevation: 2,
+      azimuth: 180,
+      distortionScale: this.water.material.uniforms.distortionScale.value,
+      size: 5,  // Set the default water size to 5
+      desiredSpeed: this.submarine.desiredSpeed || 0, // Initialize with the submarine's current desiredSpeed
+      desiredDepth: this.submarine.desiredDepth || 0 // Initialize with the submarine's current desiredDepth
+    };
+
+    const gui = new GUI();
+
+    // Sky folder
+    const folderSky = gui.addFolder('Sky');
+    folderSky.add(parameters, 'elevation', 0, 90, 0.1).onChange((value) => {
+      this.updateSun(value, parameters.azimuth);
+    });
+    folderSky.add(parameters, 'azimuth', -180, 180, 0.1).onChange((value) => {
+      this.updateSun(parameters.elevation, value);
+    });
+    folderSky.open();
+
+    // Water folder
+    const waterUniforms = this.water.material.uniforms;
+    const folderWater = gui.addFolder('Water');
+    folderWater.add(waterUniforms.distortionScale, 'value', 0, 8, 0.1).name('distortionScale');
+    folderWater.add(parameters, 'size', 0.1, 10, 0.1).name('size').onChange((value) => {
+      waterUniforms.size.value = value;  // Update the water size uniform when the GUI value changes
+    });
+    folderWater.open();
+
+
+    // Submarine folder
+    const folderSubmarine = gui.addFolder('Submarine');
+    const desiredSpeedController = folderSubmarine.add(parameters, 'desiredSpeed', -500, 500, 0.1).name('Desired Speed').onChange((value) => {
+      this.submarine.desiredSpeed = value;
+      this.updateOverlay();
+    });
+
+    const desiredDepthController = folderSubmarine.add(parameters, 'desiredDepth', 0, 490, 0.1).name('Desired Depth').onChange((value) => {
+      this.submarine.desiredDepth = value;
+      this.updateOverlay();
+    });
+
+    folderSubmarine.open();
+  }
+
+  initOverlay() {
+    const overlay = document.createElement('div');
+    overlay.id = 'gui-overlay';
+    document.body.appendChild(overlay);
+
+    const style = document.createElement('style');
+    style.innerHTML = `
+            #gui-overlay {
+                position: absolute;
+                top: 10px;
+                left: 10px;
+                background: rgba(0, 0, 0, 0.8);
+                padding: 10px;
+                border-radius: 5px;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+                color: white;
+            }
+            #gui-overlay h3 {
+                margin: 0 0 10px;
+                color: #FFD700; /* Gold color for the title */
+            }
+            #gui-overlay p {
+                margin: 0 0 5px;
+            }
+        `;
+    document.head.appendChild(style);
+
+    overlay.innerHTML = `
+            <h3>Submarine Data</h3>
+            <div id="submarine-data">
+                <p><strong>Current Velocity:</strong> <span id="velocity-value">0</span> m/s</p>
+                <p><strong>Current Acceleration:</strong> <span id="acceleration-value">0</span> m/s²</p>
+                <p><strong>Thrust Force:</strong> <span id="thrust-force-value">0</span> N</p>
+                <p><strong>Drag Force:</strong> <span id="drag-force-value">0</span> N</p>
+                <p><strong>Power Output:</strong> <span id="power-output-value">0</span> W</p>
+                <p><strong>Power Output:</strong> <span id="power-output-hp-value">0</span> HorsePower</p>
+                <p><strong>Gravity Force:</strong> <span id="gravity-force-value">0</span> N</p>
+                <p><strong>Buoyancy Force:</strong> <span id="buoyancy-force-value">0</span> N</p>
+                <p><strong>Pressure:</strong> <span id="pressure-value">${this.submarine.calculatePressure().toFixed(2)}</span> Pa</p>
+                <p><strong>Ballast Percentage:</strong> <span id="ballast-percentage-value">${(this.submarine.ballastPercentage * 100).toFixed(2)}%</span></p>
+                <p><strong>Current Depth:</strong> <span id="current-depth-value">${this.submarine.currentDepth.toFixed(2)}</span> m</p>
+            </div>
+        `;
+  }
+
+  updateOverlay() {
+    const velocity = this.submarine.velocity.length().toFixed(2);
+    const acceleration = this.submarine.acceleration.length().toFixed(5);
+    const thrustForce = this.submarine.thrustForce().length().toFixed(2);
+    const dragForce = this.submarine.dragForce().length().toFixed(2);
+    const powerOutput = Math.abs((this.submarine.velocity.z * thrustForce / this.submarine.propellerEfficiency).toFixed(2));
+    const powerOutputHP = Math.abs((powerOutput * 0.00134).toFixed(2));
+    const gravityForce = this.submarine.gravityForce().length().toFixed(2);
+    const buoyancyForce = this.submarine.buoyancyForce().length().toFixed(2);
+
+    document.getElementById('velocity-value').textContent = velocity;
+    document.getElementById('acceleration-value').textContent = acceleration;
+    document.getElementById('thrust-force-value').textContent = thrustForce;
+    document.getElementById('drag-force-value').textContent = dragForce;
+    document.getElementById('power-output-value').textContent = powerOutput;
+    document.getElementById('power-output-hp-value').textContent = powerOutputHP;
+    document.getElementById('gravity-force-value').textContent = gravityForce;
+    document.getElementById('buoyancy-force-value').textContent = buoyancyForce;
+    document.getElementById('pressure-value').textContent = this.submarine.calculatePressure().toFixed(2);
+    document.getElementById('ballast-percentage-value').textContent = (this.submarine.ballastPercentage * 100).toFixed(2) + '%';
+    document.getElementById('current-depth-value').textContent = this.submarine.currentDepth.toFixed(2);
+  }
+}
